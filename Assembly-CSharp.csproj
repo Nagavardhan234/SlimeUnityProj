@@ -64,19 +64,20 @@
   <ItemGroup>
     <Compile Include="Assets\SCripts\ForceJellyColor.cs" />
     <Compile Include="Assets\SCripts\ParticleController.cs" />
-    <Compile Include="Assets\SCripts\DualLayerJelly.cs" />
     <Compile Include="Assets\SCripts\SlimeController.cs" />
     <Compile Include="Assets\SCripts\TouchInteractionSystem.cs" />
     <Compile Include="Assets\SCripts\JellySphereGenerator.cs" />
     <Compile Include="Assets\SCripts\SlimeJumpController.cs" />
-    <Compile Include="Assets\SCripts\PreInitColorFix.cs" />
     <Compile Include="Assets\SCripts\SlimeFaceController.cs" />
-    <Compile Include="Assets\SCripts\CompleteColorFix.cs" />
     <Compile Include="Assets\SCripts\JellyMesh.cs" />
     <Compile Include="Assets\SCripts\NuclearColorFix.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Shaders\SlimeGlowShader.shader" />
+    <None Include="Assets\Shaders\Slime3D.shader" />
+    <None Include="Assets\Shaders\GlassButton.shader" />
+    <None Include="Assets\Shaders\SlimeMagicalJelly.shader" />
+    <None Include="Assets\Shaders\BackgroundProcedural.shader" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

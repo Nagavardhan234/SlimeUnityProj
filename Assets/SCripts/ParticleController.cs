@@ -28,7 +28,7 @@ public class ParticleController : MonoBehaviour
     [SerializeField] private float touchEffectSize = 0.08f;
     
     [Header("Auto-Creation")]
-    [SerializeField] private bool autoCreateParticleSystems = true;
+    [SerializeField] private bool autoCreateParticleSystems = false; // DISABLED for calm aesthetic
     
     void Start()
     {
@@ -215,6 +215,10 @@ public class ParticleController : MonoBehaviour
         var velocityOverLifetime = touchEffectParticles.velocityOverLifetime;
         velocityOverLifetime.enabled = true;
         velocityOverLifetime.space = ParticleSystemSimulationSpace.World;
+        // Set all velocity components to constant mode
+        velocityOverLifetime.x = new ParticleSystem.MinMaxCurve(0f);
+        velocityOverLifetime.y = new ParticleSystem.MinMaxCurve(0f);
+        velocityOverLifetime.z = new ParticleSystem.MinMaxCurve(0f);
         velocityOverLifetime.speedModifier = new ParticleSystem.MinMaxCurve(0.5f);
         
         var renderer = touchEffectParticles.GetComponent<ParticleSystemRenderer>();
@@ -253,7 +257,13 @@ public class ParticleController : MonoBehaviour
         var velocityOverLifetime = ambientGlowParticles.velocityOverLifetime;
         velocityOverLifetime.enabled = true;
         velocityOverLifetime.space = ParticleSystemSimulationSpace.World;
+        // Set all velocity components to constant mode
+        velocityOverLifetime.x = new ParticleSystem.MinMaxCurve(0f);
+        velocityOverLifetime.y = new ParticleSystem.MinMaxCurve(0f);
+        velocityOverLifetime.z = new ParticleSystem.MinMaxCurve(0f);
+        velocityOverLifetime.orbitalX = new ParticleSystem.MinMaxCurve(0f);
         velocityOverLifetime.orbitalY = new ParticleSystem.MinMaxCurve(0.1f);
+        velocityOverLifetime.orbitalZ = new ParticleSystem.MinMaxCurve(0f);
         
         var renderer = ambientGlowParticles.GetComponent<ParticleSystemRenderer>();
         renderer.renderMode = ParticleSystemRenderMode.Billboard;

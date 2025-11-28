@@ -128,11 +128,7 @@ public class TouchInteractionSystem : MonoBehaviour
                     jellyMesh.ApplyPushForceAtPoint(hit.point, pokeForce * 0.5f);
                 }
                 
-                // Spawn touch particle
-                if (particleController != null)
-                {
-                    particleController.EmitTouchEffect(hit.point);
-                }
+                // No particles for calm aesthetic
             }
         }
     }
@@ -196,12 +192,7 @@ public class TouchInteractionSystem : MonoBehaviour
                     faceController.ReactToInteraction(hit.point);
                 }
                 
-                // Particles
-                if (particleController != null)
-                {
-                    particleController.EmitTapEffect(hit.point);
-                    particleController.EmitSparkles(hit.point, 5);
-                }
+                // No particles - calm aesthetic
                 
                 // Sound
                 PlaySquishSound();
@@ -243,11 +234,7 @@ public class TouchInteractionSystem : MonoBehaviour
                     jellyMesh.ApplyForceAtPoint(hit.point, worldDrag * dragForce * Time.deltaTime);
                 }
                 
-                // Emit sparkles along drag path
-                if (particleController != null && Random.value > 0.7f)
-                {
-                    particleController.EmitSparkles(hit.point, 1);
-                }
+                // No sparkles - calm aesthetic
             }
         }
     }

@@ -1,18 +1,19 @@
 using UnityEngine;
 
 /// <summary>
-/// AGGRESSIVE color enforcer - runs after everything else to force light green.
-/// Add this script LAST to override any white material issues.
+/// Simplified color enforcer - applies matte finish for calm aesthetic.
+/// No emission, no glow - pure, clean color only.
 /// </summary>
 [DefaultExecutionOrder(1000)] // Runs AFTER all other scripts
 public class ForceJellyColor : MonoBehaviour
 {
     [Header("Forced Color")]
     [SerializeField] private Color forcedColor = new Color(0.5f, 1f, 0.8f, 1f); // Light green
-    [SerializeField] private float emissionIntensity = 3f;
+    [SerializeField] [Range(0f, 1f)] private float smoothness = 0.4f; // Matte finish
+    [SerializeField] [Range(0f, 1f)] private float metallic = 0f; // Non-metallic
     
     private int forceAttempts = 0;
-    private const int maxForceAttempts = 100; // Force for 100 frames
+    private const int maxForceAttempts = 10; // Reduced - only force initially
     
     void Start()
     {
@@ -47,37 +48,42 @@ public class ForceJellyColor : MonoBehaviour
             
             Material mat = rend.material; // Creates instance
             
-            // AGGRESSIVE: Set color multiple ways
+            // Simple, clean color application
             mat.SetColor("_Color", forcedColor);
-            mat.color = forcedColor; // Unity's shorthand
+            mat.color = forcedColor;
             
-            // Force emission AGGRESSIVELY
-            mat.EnableKeyword("_EMISSION");
-            mat.SetColor("_EmissionColor", forcedColor * emissionIntensity);
-            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            // Matte finish - no glow, no shine
+            if (mat.HasProperty("_Smoothness"))
+                mat.SetFloat("_Smoothness", smoothness);
+            if (mat.HasProperty("_Glossiness"))
+                mat.SetFloat("_Glossiness", smoothness);
+            if (mat.HasProperty("_Metallic"))
+                mat.SetFloat("_Metallic", metallic);
+            
+            // DISABLE all emission and glow effects
+            mat.DisableKeyword("_EMISSION");
+            mat.SetColor("_EmissionColor", Color.black);
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
             
             if (mat.HasProperty("_EmissionIntensity"))
-                mat.SetFloat("_EmissionIntensity", emissionIntensity);
+                mat.SetFloat("_EmissionIntensity", 0f);
             
-            // Force Fresnel to match
+            // Disable Fresnel glow
             if (mat.HasProperty("_FresnelColor"))
-                mat.SetColor("_FresnelColor", forcedColor * 1.5f);
+                mat.SetColor("_FresnelColor", Color.black);
+            if (mat.HasProperty("_FresnelPower"))
+                mat.SetFloat("_FresnelPower", 0f);
             
-            // Force SSS color
+            // Disable SSS glow
             if (mat.HasProperty("_SSSColor"))
-                mat.SetColor("_SSSColor", forcedColor * 1.2f);
-            
-            // Verify color was set
-            Color verifyColor = mat.GetColor("_Color");
-            if (verifyColor != forcedColor && forceAttempts < 10)
-            {
-                Debug.LogWarning($"Color mismatch on {rend.gameObject.name}: {verifyColor} != {forcedColor}");
-            }
+                mat.SetColor("_SSSColor", Color.black);
+            if (mat.HasProperty("_SSSIntensity"))
+                mat.SetFloat("_SSSIntensity", 0f);
         }
         
-        if (forceAttempts == 0 || forceAttempts == maxForceAttempts - 1)
+        if (forceAttempts == 0)
         {
-            Debug.Log($"<color=green>✓ FORCED LIGHT GREEN (attempt {forceAttempts + 1})</color>");
+            Debug.Log($"<color=green>✓ Applied clean matte finish (no emission/glow)</color>");
         }
     }
     
