@@ -64,6 +64,9 @@ public class SlimeController : MonoBehaviour
         
         timeAccum += Time.deltaTime;
         
+        // Update shader time for animated effects (sparkles, wobble, etc.)
+        slimeMaterial.SetFloat("_Time", timeAccum);
+        
         // Idle breathing animation + pulse
         if (enableIdleAnimation)
         {
@@ -74,11 +77,16 @@ public class SlimeController : MonoBehaviour
             // BREATHING PULSE - scale 0.98 to 1.03 (alive feeling, constrained to prevent clipping)
             float pulse = 1.005f + Mathf.Sin(timeAccum * 1.1f) * 0.025f;
             slimeMaterial.SetFloat("_BreathingPulse", pulse);
+            
+            // Add subtle rotation wobble to the 3D quad for extra life
+            float wobbleAngle = Mathf.Sin(timeAccum * 0.8f) * 2f;
+            slimeQuad.transform.rotation = Quaternion.Euler(0, 0, wobbleAngle);
         }
         else
         {
             slimeMaterial.SetFloat("_SquishAmount", manualSquish);
             slimeMaterial.SetFloat("_BounceOffset", manualBounce);
+            slimeQuad.transform.rotation = Quaternion.identity;
         }
         
         // Blinking system
@@ -193,11 +201,11 @@ public class SlimeController : MonoBehaviour
         slimeCamera.cullingMask = 1 << LayerMask.NameToLayer("Default");
         slimeCamera.depth = -10;
         
-        // Create 3D slime quad
+        // Create 3D slime quad (3.2 scale leaves margin for animations)
         slimeQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         slimeQuad.name = "SlimeQuad3D";
         slimeQuad.transform.position = new Vector3(0, 0, 0);
-        slimeQuad.transform.localScale = new Vector3(3.6f, 3.6f, 1);
+        slimeQuad.transform.localScale = new Vector3(3.2f, 3.2f, 1);
         
         Collider collider = slimeQuad.GetComponent<Collider>();
         if (collider != null) DestroyImmediate(collider);
@@ -263,6 +271,11 @@ public class SlimeController : MonoBehaviour
         shadow.effectDistance = new Vector2(0, -12);       // 12px downward
         shadow.useGraphicAlpha = true;
     }
+    
+    // Public accessors for external control
+    public Material GetSlimeMaterial() { return slimeMaterial; }
+    public Transform GetSlimeTransform() { return slimeQuad != null ? slimeQuad.transform : null; }
+    public void SetIdleAnimationEnabled(bool enabled) { enableIdleAnimation = enabled; }
     
     // Public methods for external control
     public void TriggerBounce(float intensity = 1f)

@@ -22,12 +22,12 @@ Shader "Procedural/SlimeMagicalJelly"
         // Shape variation - gentle baby-like movement
         _WobbleAmount ("Wobble Amount", Range(0, 0.3)) = 0.018
         _WobbleSpeed ("Wobble Speed", Range(0, 5)) = 2.0
-        _BottomSquish ("Bottom Squish", Range(0, 0.3)) = 0.2
         
         // Animation controls
         _SquishAmount ("Squish Amount", Range(0, 1)) = 0
         _BounceOffset ("Bounce Offset", Range(-1, 1)) = 0
         _BreathingPulse ("Breathing Pulse", Range(0.95, 1.05)) = 1.0     // Scale pulse for alive feeling
+        _BottomSquish ("Bottom Squish", Range(0, 0.5)) = 0.15
         
         // Eye properties - LARGER for baby schema
         _EyeColor ("Eye Color", Color) = (0.08, 0.15, 0.35, 1)
@@ -35,6 +35,35 @@ Shader "Procedural/SlimeMagicalJelly"
         _EyeShine ("Eye Shine", Color) = (1, 1, 1, 1)
         _BlinkAmount ("Blink Amount", Range(0, 1)) = 0
         _EyeEmotiveness ("Eye Emotiveness", Range(0.5, 1.5)) = 1.0
+        
+        // NEW: Eye Expression Controls
+        _EyeOffsetX ("Eye Gaze X", Range(-0.3, 0.3)) = 0
+        _EyeOffsetY ("Eye Gaze Y", Range(-0.3, 0.3)) = 0
+        _EyeRotation ("Eye Rotation", Range(-30, 30)) = 0
+        _EyeSquintAmount ("Eye Squint", Range(0, 1)) = 0
+        _PupilScale ("Pupil Scale", Range(0.3, 1.5)) = 1.0
+        
+        // NEW: Eyebrow Controls
+        _EyebrowHeight ("Eyebrow Height", Range(-0.15, 0.15)) = 0
+        _EyebrowAngle ("Eyebrow Angle", Range(-30, 30)) = 0
+        _EyebrowVisible ("Eyebrow Visible", Range(0, 1)) = 0
+        
+        // NEW: Mouth Controls
+        _MouthVisible ("Mouth Visible", Range(0, 1)) = 0
+        _MouthCurve ("Mouth Curve", Range(-1, 1)) = 0
+        
+        // NEW: Tears and Effects
+        _TearAmount ("Tear Amount", Range(0, 1)) = 0
+        _BlushPulseSpeed ("Blush Pulse Speed", Range(0, 5)) = 0
+        
+        // NEW: Body Deformation
+        _TopSquish ("Top Squish", Range(0, 0.5)) = 0
+        _AsymmetryAmount ("Asymmetry", Range(0, 0.5)) = 0
+        _LeanAngle ("Lean Angle", Range(-20, 20)) = 0
+        
+        // NEW: Effects
+        _ColorShift ("Color Shift Hue", Range(-180, 180)) = 0
+        _ShadowIntensity ("Shadow Intensity", Range(0, 1)) = 0.15
         
         // Magical Sparkle Particles
         _ParticleCount ("Particle Count", Range(0, 20)) = 12            // More sparkles
@@ -79,6 +108,29 @@ Shader "Procedural/SlimeMagicalJelly"
             float _Shininess;
             float _SpecularPower;
             float _InnerGlowStrength;
+            
+            // NEW: Eye expression uniforms
+            float _EyeOffsetX;
+            float _EyeOffsetY;
+            float _EyeRotation;
+            float _EyeSquintAmount;
+            float _PupilScale;
+            float _EyebrowHeight;
+            float _EyebrowAngle;
+            float _EyebrowVisible;
+            float _MouthVisible;
+            float _MouthCurve;
+            float _TearAmount;
+            float _BlushPulseSpeed;
+            
+            // NEW: Body deformation uniforms
+            float _TopSquish;
+            float _AsymmetryAmount;
+            float _LeanAngle;
+            
+            // NEW: Effect uniforms
+            float _ColorShift;
+            float _ShadowIntensity;
             
             float _WobbleAmount;
             float _WobbleSpeed;
@@ -138,11 +190,11 @@ Shader "Procedural/SlimeMagicalJelly"
                 float wobble2 = sin(wobbleAngle * 5.0 - time * _WobbleSpeed * 0.7) * _WobbleAmount * 0.5;
                 float totalWobble = wobble1 + wobble2;
                 
-                // Apply animation deformations
+                // Apply animation deformations (multiply to compress/expand)
                 float squish = lerp(1.0, 0.7, _SquishAmount);
                 float stretch = lerp(1.0, 1.3, _SquishAmount);
-                p.y = (p.y - _BounceOffset) / squish;
-                p.x = p.x / stretch;
+                p.y = (p.y - _BounceOffset * 0.3) * squish;  // Multiply to compress Y, limit bounce offset
+                p.x = p.x * stretch;  // Multiply to expand X
                 
                 // Bottom squish (sitting flat)
                 float bottomFactor = smoothstep(-0.8, -0.5, p.y);
@@ -153,8 +205,8 @@ Shader "Procedural/SlimeMagicalJelly"
                 float2 toCenter = p - bodyCenter;
                 float distToCenter = length(toCenter);
                 
-                // Apply wobble to radius (80% base leaves 20% margin for breathing)
-                float bodyRadius = 0.80 + totalWobble;
+                // Apply wobble to radius (75% base leaves 25% margin for breathing)
+                float bodyRadius = 0.75 + totalWobble;
                 float bodyDist = distToCenter - bodyRadius;
                 
                 // Calculate fake Z-depth for 3D volume

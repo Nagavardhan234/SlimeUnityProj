@@ -63,6 +63,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\SCripts\Editor\MaterialSetup.cs" />
+    <Compile Include="Assets\SCripts\Editor\UltimateLivingSlimeEditor.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">
