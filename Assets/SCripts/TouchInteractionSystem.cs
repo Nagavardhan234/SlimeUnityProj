@@ -8,6 +8,7 @@ public class TouchInteractionSystem : MonoBehaviour
     [SerializeField] private SlimeFaceController faceController;
     [SerializeField] private ParticleController particleController;
     [SerializeField] private Camera mainCamera;
+    [SerializeField] private UltimateLivingSlime livingSlime;  // NEW: For eye tracking response
     
     [Header("Touch Settings")]
     [SerializeField] private float tapThreshold = 0.2f; // Time threshold for tap vs hold
@@ -54,6 +55,9 @@ public class TouchInteractionSystem : MonoBehaviour
         
         if (particleController == null)
             particleController = GetComponent<ParticleController>();
+        
+        if (livingSlime == null)
+            livingSlime = GetComponent<UltimateLivingSlime>();
         
         if (audioSource == null)
         {
@@ -190,6 +194,12 @@ public class TouchInteractionSystem : MonoBehaviour
                 if (faceController != null)
                 {
                     faceController.ReactToInteraction(hit.point);
+                }
+                
+                // Eye tracking response (NEW: Lifelike awareness)
+                if (livingSlime != null)
+                {
+                    livingSlime.OnTapDetected(screenPosition);
                 }
                 
                 // No particles - calm aesthetic

@@ -113,6 +113,15 @@ public class UltimateLivingSlime : MonoBehaviour
     [Range(0f, 1f)] public float hungerMeter = 1f;      // Decreases over time
     public float lastInteractionTime = 0f;
     
+    [Header("Attention & Awareness System")]
+    public bool enableCursorTracking = true;
+    public bool enableTapResponse = true;
+    [Range(0f, 1f)] public float cursorAttentionStrength = 0.8f;  // How much cursor attracts gaze
+    [Range(0f, 100f)] public float relationshipLevel = 0f;  // Trust/bond level (0-100)
+    public float attentionDistance = 5f;  // Max distance to notice cursor
+    [Tooltip("Seconds to wait before cursor tracking begins (neutral startup)")]
+    public float cursorTrackingStartupDelay = 8f;  // Reduced for better UX
+    
     [Header("Debug Display")]
     public string currentEmotionName = "Neutral";
     public float emotionTimer = 0f;
@@ -133,6 +142,8 @@ public class UltimateLivingSlime : MonoBehaviour
     
     // Eye system
     private Vector2 gazeTarget = Vector2.zero;
+    private Vector2 saccadeTarget = Vector2.zero;  // Autonomous saccade destination
+    private Vector2 maxGazeOffset = new Vector2(0.15f, 0.1f);  // Gaze limits
     private float nextSaccadeTime = 0f;
     private float blinkTimer = 0f;
     private float nextBlinkTime = 2f;
@@ -165,6 +176,67 @@ public class UltimateLivingSlime : MonoBehaviour
     private float sweatingAmount = 0f;          // Anxiety wetness
     private float sleepDepth = 0f;              // 0=awake, 1=deep sleep
     
+    // Awareness stage system (gradual discovery)
+    private enum AwarenessStage { Oblivious, Noticing, Tracking }
+    private AwarenessStage currentAwareness = AwarenessStage.Oblivious;
+    private float awarenessTimer = 0f;
+    private float lastCursorMoveTime = 0f;
+    
+    // Attention tracking system
+    private Vector3 cursorWorldPosition = Vector3.zero;
+    private Vector2 cursorGazeTarget = Vector2.zero;
+    private Vector2 smoothedCursorTarget = Vector2.zero;  // Smoothed cursor tracking
+    private float cursorDistance = 999f;
+    private bool isCursorNearby = false;
+    private float attentionFocus = 0f;          // 0=ignoring, 1=fully focused on cursor
+    private float gazeAtCursorDuration = 0f;    // How long we've been looking at cursor
+    private float nextAttentionCheckTime = 0f;  // For periodic user check-ins
+    private float gazeLockoutTimer = 0f;        // Cooldown after breaking gaze
+    private float startupTime = 0f;             // For startup grace period
+    
+    // Imperfect tracking system
+    private Vector2 trackingError = Vector2.zero;  // Overshoot/drift offset
+    private Vector2 trackingErrorVelocity = Vector2.zero;
+    private float nextTrackingErrorTime = 0f;
+    
+    // Shy gaze break system
+    private float nextShyBreakCheckTime = 0f;
+    private bool isInShyBreak = false;
+    private float shyBreakDuration = 0f;
+    
+    // Lost interest detection
+    private Vector3 lastCursorPosition = Vector3.zero;
+    private float cursorIdleTimer = 0f;
+    
+    // First-impression phase (0-10s prioritize user)
+    private enum SaccadeState { Normal, PreSaccadeUserCheck, ExecutingSaccade }
+    private SaccadeState currentSaccadeState = SaccadeState.Normal;
+    private float preSaccadeCheckTimer = 0f;
+    private float firstImpressionEndTime = 0f;
+    private Vector2 userFaceGazeTarget = Vector2.zero;
+    
+    // Tap response
+    private bool wasRecentlyTapped = false;
+    private float tapResponseTimer = 0f;
+    private Vector3 lastTapPosition = Vector3.zero;
+    private float tapIntensity = 0f;
+    private int recentTapCount = 0;
+    private float tapSpamTimer = 0f;
+    
+    // Micro-behaviors
+    private float nextCuriosityLookTime = 0f;
+    private float nextCheckInTime = 0f;
+    private bool isDoingMicroBehavior = false;
+    private Vector2 microBehaviorTarget = Vector2.zero;
+    
+    // Smooth pupil dilation
+    private float targetPupilSize = 1f;
+    private float currentPupilSize = 1f;
+    private float pupilDilationVelocity = 0f;
+    
+    // Smooth gaze tracking
+    private Vector2 gazeVelocity = Vector2.zero;
+    
     // Animation history for emergence
     private Queue<EmotionalState> emotionHistory = new Queue<EmotionalState>();
     private const int maxHistorySize = 20;
@@ -174,6 +246,8 @@ public class UltimateLivingSlime : MonoBehaviour
     void Start()
     {
         StartCoroutine(InitializeAfterSlime());
+        startupTime = Time.time;  // Record startup time for grace period
+        firstImpressionEndTime = Time.time + 10f;  // First 10 seconds = user-focused
     }
     
     IEnumerator InitializeAfterSlime()
@@ -227,11 +301,18 @@ public class UltimateLivingSlime : MonoBehaviour
         currentEmotion = GetEmotionPresetValues(EmotionPreset.Neutral);
         targetEmotion = currentEmotion.Clone();
         
+        // Initialize gaze to neutral resting position (match shader baseline)
+        gazeTarget = new Vector2(-0.025f, -0.01f);
+        smoothedCursorTarget = gazeTarget;
+        
         // Initialize timers
         nextBlinkTime = Random.Range(2f, 4f);
         nextSaccadeTime = Random.Range(0.5f, 2f);
         nextMicroShiftTime = Random.Range(8f, 12f);
         nextEyeDartTime = Random.Range(2f, 5f);
+        nextAttentionCheckTime = Time.time + Random.Range(8f, 15f);
+        nextCuriosityLookTime = Time.time + Random.Range(5f, 10f);
+        nextCheckInTime = Time.time + Random.Range(10f, 20f);
         
         // Reset residuals
         tearPuffiness = 0f;
@@ -252,7 +333,9 @@ public class UltimateLivingSlime : MonoBehaviour
         // Core update loops
         UpdateEmotionTransition();
         UpdateBreathingSystem();
+        UpdateAttentionSystem();  // NEW: Track cursor and user attention
         UpdateEyeSystem();
+        UpdateMicroBehaviors();    // NEW: Anticipatory looks, check-ins
         UpdateIdleMicroAnimations();
         UpdateEnergySystem();
         UpdateResidualEffects();
@@ -405,6 +488,161 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             isTransitioning = false;
         }
+    }
+    
+    #endregion
+    
+    #region Attention Tracking System
+    
+    void UpdateAttentionSystem()
+    {
+        if (!enableCursorTracking) return;
+        
+        if (Camera.main == null)
+        {
+            Debug.LogWarning("UltimateLivingSlime: Camera.main is null!");
+            return;
+        }
+        
+        // Startup grace period - stay neutral for first ~8 seconds
+        float timeSinceStartup = Time.time - startupTime;
+        if (timeSinceStartup < cursorTrackingStartupDelay)
+        {
+            attentionFocus = 0f;
+            isCursorNearby = false;
+            currentAwareness = AwarenessStage.Oblivious;
+            awarenessTimer = 0f;
+            return;  // Ignore cursor during grace period
+        }
+        
+        // Get cursor world position
+        Vector3 mouseScreenPos = Input.mousePosition;
+        mouseScreenPos.z = Mathf.Abs(Camera.main.transform.position.z - slimeTransform.position.z);
+        cursorWorldPosition = Camera.main.ScreenToWorldPoint(mouseScreenPos);
+        
+        // Calculate distance to cursor (2D distance for 2D game)
+        Vector2 slimePos2D = new Vector2(slimeTransform.position.x, slimeTransform.position.y);
+        Vector2 cursorPos2D = new Vector2(cursorWorldPosition.x, cursorWorldPosition.y);
+        cursorDistance = Vector2.Distance(slimePos2D, cursorPos2D);
+        isCursorNearby = cursorDistance < attentionDistance;
+        
+        // Lost interest detection - cursor not moving
+        float cursorMoveDelta = Vector3.Distance(cursorWorldPosition, lastCursorPosition);
+        if (cursorMoveDelta > 0.01f)
+        {
+            cursorIdleTimer = 0f;
+            lastCursorMoveTime = Time.time;
+        }
+        else
+        {
+            cursorIdleTimer += Time.deltaTime;
+        }
+        lastCursorPosition = cursorWorldPosition;
+        
+        // Awareness stage progression (gradual discovery)
+        if (isCursorNearby && cursorMoveDelta > 0.01f)
+        {
+            awarenessTimer += Time.deltaTime;
+            
+            if (currentAwareness == AwarenessStage.Oblivious && awarenessTimer > 2f)
+            {
+                currentAwareness = AwarenessStage.Noticing;  // First discovery moment!
+            }
+            else if (currentAwareness == AwarenessStage.Noticing && awarenessTimer > 5f)
+            {
+                currentAwareness = AwarenessStage.Tracking;  // Full attention unlocked
+            }
+        }
+        else if (!isCursorNearby)
+        {
+            // Reset awareness when cursor leaves
+            awarenessTimer = Mathf.Max(0f, awarenessTimer - Time.deltaTime * 0.5f);
+            if (awarenessTimer < 2f) currentAwareness = AwarenessStage.Oblivious;
+            else if (awarenessTimer < 5f) currentAwareness = AwarenessStage.Noticing;
+        }
+        
+        // Calculate gaze direction to cursor
+        if (isCursorNearby && currentAwareness != AwarenessStage.Oblivious)
+        {
+            Vector2 directionToCursor = (cursorWorldPosition - slimeTransform.position).normalized;
+            float gazeRange = 0.1f;
+            Vector2 rawCursorTarget = new Vector2(
+                directionToCursor.x * gazeRange,
+                directionToCursor.y * gazeRange * 0.5f
+            );
+            
+            // Smooth cursor target to prevent jarring jumps from rapid mouse movement
+            smoothedCursorTarget = Vector2.Lerp(smoothedCursorTarget, rawCursorTarget, 3f * Time.deltaTime);
+            cursorGazeTarget = smoothedCursorTarget;
+            
+            // Emotion-based tracking personality
+            float focusSpeed = 0.4f;
+            float targetFocus = 0.7f;
+            
+            // Scared = avoid gaze
+            if (currentEmotion.dominance < 0.3f && currentEmotion.arousal > 0.7f)
+            {
+                targetFocus = 0f;
+                focusSpeed = 0.6f;  // Quick aversion
+            }
+            // Curious = eager tracking
+            else if (currentEmotion.engagement > 0.8f)
+            {
+                targetFocus = 1f;
+                focusSpeed = 0.7f;  // Fast attention
+            }
+            // Playful = darting glances
+            else if (currentEmotion.valence > 0.7f && currentEmotion.arousal > 0.6f)
+            {
+                targetFocus = 0.5f;
+                focusSpeed = 1.2f;  // Quick but partial
+            }
+            // Content/calm = gentle tracking
+            else if (currentEmotion.valence > 0.5f && currentEmotion.arousal < 0.4f)
+            {
+                targetFocus = 0.6f;
+                focusSpeed = 0.3f;  // Very slow and gentle
+            }
+            // Sad = low energy tracking
+            else if (currentEmotion.valence < 0.3f && currentEmotion.arousal < 0.4f)
+            {
+                targetFocus = 0.4f;
+                focusSpeed = 0.2f;  // Sluggish attention
+            }
+            
+            // Awareness stage modulation
+            if (currentAwareness == AwarenessStage.Noticing)
+            {
+                targetFocus *= 0.3f;  // Just occasional glances
+                focusSpeed *= 0.5f;   // Slower buildup
+            }
+            
+            // Lost interest - cursor idle too long
+            if (cursorIdleTimer > 3f)
+            {
+                float idleDecay = Mathf.Clamp01((cursorIdleTimer - 3f) / 4f);
+                targetFocus *= (1f - idleDecay * 0.8f);  // Gradually lose interest
+            }
+            
+            // Relationship level affects attention comfort
+            float relationshipBonus = Mathf.Clamp01(relationshipLevel / 100f) * 0.3f;
+            targetFocus = Mathf.Clamp01(targetFocus + relationshipBonus);
+            
+            // Apply focus change
+            attentionFocus = Mathf.Lerp(attentionFocus, targetFocus, focusSpeed * Time.deltaTime);
+        }
+        else
+        {
+            // Cursor far away - lose focus
+            attentionFocus = Mathf.Lerp(attentionFocus, 0f, Time.deltaTime);
+        }
+        
+        attentionFocus = Mathf.Clamp01(attentionFocus);
+    }
+    
+    bool isAsleep()
+    {
+        return currentEmotionName == "Sleeping" || currentEmotionName == "Drowsy" || sleepDepth > 0.5f;
     }
     
     #endregion
@@ -630,27 +868,256 @@ public class UltimateLivingSlime : MonoBehaviour
     
     void UpdateEyeSystem()
     {
-        // Saccadic eye movement (jump between fixation points)
-        if (Time.time > nextSaccadeTime && !isBlinking)
+        if (isAsleep())
         {
-            // New gaze target influenced by emotional state
-            float gazeRange = Mathf.Lerp(0.05f, 0.15f, currentEmotion.engagement);
-            gazeTarget = new Vector2(
-                Random.Range(-gazeRange, gazeRange),
-                Random.Range(-gazeRange, gazeRange)
+            gazeTarget = Vector2.Lerp(gazeTarget, Vector2.zero, 2f * Time.deltaTime);
+            currentPupilSize = Mathf.Lerp(currentPupilSize, 0.3f, Time.deltaTime);
+            return;
+        }
+        
+        // FIRST-IMPRESSION PHASE (0-10s): Prioritize looking at user
+        bool isFirstImpression = Time.time < firstImpressionEndTime;
+        if (isFirstImpression && !isDoingMicroBehavior)
+        {
+            // Always calculate cursor position (even during startup grace period)
+            if (Camera.main != null)
+            {
+                Vector3 mouseScreenPos = Input.mousePosition;
+                mouseScreenPos.z = Mathf.Abs(Camera.main.transform.position.z - slimeTransform.position.z);
+                Vector3 cursorWorld = Camera.main.ScreenToWorldPoint(mouseScreenPos);
+                Vector2 directionToCursor = (cursorWorld - slimeTransform.position).normalized;
+                float gazeRange = 0.1f;
+                userFaceGazeTarget = new Vector2(
+                    directionToCursor.x * gazeRange,
+                    directionToCursor.y * gazeRange * 0.5f
+                );
+            }
+            else
+            {
+                // Fallback if camera not found
+                userFaceGazeTarget = new Vector2(0f, 0.05f);
+            }
+            
+            // Spend 80% of time looking at user, 20% brief glances away
+            if (Random.value < 0.2f * Time.deltaTime)  // 20% chance per second to glance away
+            {
+                // Brief glance away (1-2s)
+                float gazeRange = 0.08f;
+                saccadeTarget = new Vector2(
+                    Random.Range(-gazeRange, gazeRange),
+                    Random.Range(-gazeRange * 0.5f, gazeRange)
+                );
+                gazeTarget = Vector2.Lerp(gazeTarget, saccadeTarget, 4f * Time.deltaTime);
+            }
+            else
+            {
+                // Look at user (smooth tracking)
+                gazeTarget = Vector2.Lerp(gazeTarget, userFaceGazeTarget, 2f * Time.deltaTime);
+            }
+            
+            // Skip rest of eye system during first impression
+            UpdateBlinkSystem();
+            UpdatePupilDilation();
+            return;
+        }
+        
+        // Shy gaze break system (probabilistic during tracking)
+        if (Time.time > nextShyBreakCheckTime && !isInShyBreak)
+        {
+            nextShyBreakCheckTime = Time.time + 1f;  // Check every second
+            
+            // Base 15% chance per second, modulated by personality and relationship
+            float shyBreakChance = 0.15f;
+            shyBreakChance *= (1.5f - Mathf.Clamp01(relationshipLevel / 100f) * 0.8f);  // Less shy with high relationship
+            shyBreakChance *= (0.5f + personality.sensitivity);  // Sensitive = more shy breaks
+            
+            if (attentionFocus > 0.5f && Random.value < shyBreakChance)
+            {
+                // Trigger shy break!
+                isInShyBreak = true;
+                shyBreakDuration = Random.Range(0.8f, 2.5f);
+                gazeAtCursorDuration = 0f;
+            }
+        }
+        
+        // Process shy break
+        if (isInShyBreak)
+        {
+            shyBreakDuration -= Time.deltaTime;
+            if (shyBreakDuration <= 0f)
+            {
+                isInShyBreak = false;
+            }
+            else
+            {
+                // Look away shyly
+                Vector2 shyGaze = new Vector2(Random.Range(-0.08f, 0.08f), Random.Range(-0.05f, 0.02f));
+                gazeTarget = Vector2.Lerp(gazeTarget, shyGaze, 2f * Time.deltaTime);
+                attentionFocus *= 0.95f;  // Reduce attention during break
+                return;
+            }
+        }
+        
+        // Determine gaze mode
+        bool shouldTrackCursor = enableCursorTracking && attentionFocus > 0.3f && currentAwareness == AwarenessStage.Tracking;
+        
+        if (shouldTrackCursor)
+        {
+            // Track cursor with smooth spring physics + imperfection
+            gazeAtCursorDuration += Time.deltaTime;
+            
+            // Emotion affects tracking smoothness
+            float smoothTime = 0.8f;  // Base smooth time
+            
+            if (currentEmotion.arousal > 0.7f)  // High energy = faster tracking
+                smoothTime = 0.6f;
+            else if (currentEmotion.arousal < 0.3f)  // Low energy = slower tracking
+                smoothTime = 1.2f;
+            
+            // Imperfect tracking - add overshoot and drift
+            if (Time.time > nextTrackingErrorTime)
+            {
+                nextTrackingErrorTime = Time.time + Random.Range(0.3f, 0.8f);
+                
+                // Small tracking errors (overshoot/undershoot)
+                float errorMagnitude = 0.015f * (1f - Mathf.Clamp01(relationshipLevel / 100f) * 0.5f);  // More accurate with high relationship
+                trackingError = new Vector2(
+                    Random.Range(-errorMagnitude, errorMagnitude),
+                    Random.Range(-errorMagnitude, errorMagnitude)
+                );
+            }
+            
+            // Smooth tracking error (drift)
+            trackingError = Vector2.SmoothDamp(trackingError, Vector2.zero, ref trackingErrorVelocity, 0.5f);
+            
+            // Attention focus affects tracking strength
+            float trackingStrength = attentionFocus * cursorAttentionStrength;
+            Vector2 targetGaze = Vector2.Lerp(gazeTarget, cursorGazeTarget + trackingError, trackingStrength);
+            
+            // Use SmoothDamp for natural spring physics
+            gazeTarget = Vector2.SmoothDamp(
+                gazeTarget,
+                targetGaze,
+                ref gazeVelocity,
+                smoothTime,
+                Mathf.Infinity,
+                Time.deltaTime
             );
             
-            // Saccade timing influenced by engagement
-            float saccadeInterval = Mathf.Lerp(3f, 0.5f, currentEmotion.engagement);
-            nextSaccadeTime = Time.time + Random.Range(saccadeInterval * 0.8f, saccadeInterval * 1.2f);
+            // Micro-saccades during tracking (3% chance per frame for tiny corrections)
+            if (Random.value < 0.03f)
+            {
+                Vector2 microSaccade = new Vector2(
+                    Random.Range(-0.015f, 0.015f),
+                    Random.Range(-0.01f, 0.01f)
+                );
+                gazeTarget += microSaccade;
+            }
         }
+        else if (currentAwareness == AwarenessStage.Noticing && attentionFocus > 0.1f)
+        {
+            // Noticing stage - occasional glances toward cursor
+            if (Random.value < 0.02f)  // 2% chance per frame for quick glance
+            {
+                Vector2 glanceTarget = Vector2.Lerp(saccadeTarget, cursorGazeTarget, 0.4f);
+                gazeTarget = Vector2.Lerp(gazeTarget, glanceTarget, 5f * Time.deltaTime);
+            }
+            else
+            {
+                // Mostly autonomous saccades
+                if (Time.time > nextSaccadeTime)
+                {
+                    float gazeRange = Mathf.Lerp(0.05f, 0.15f, currentEmotion.engagement);
+                    saccadeTarget = new Vector2(
+                        Random.Range(-gazeRange, gazeRange),
+                        Random.Range(-gazeRange, gazeRange)
+                    );
+                    float saccadeInterval = Mathf.Lerp(3f, 0.5f, currentEmotion.engagement);
+                    nextSaccadeTime = Time.time + Random.Range(saccadeInterval * 0.8f, saccadeInterval * 1.2f);
+                }
+                gazeTarget = Vector2.Lerp(gazeTarget, saccadeTarget, 3f * Time.deltaTime);
+            }
+            gazeAtCursorDuration = 0f;
+        }
+        else
+        {
+            // AUTONOMOUS SACCADES (Oblivious stage or low attention)
+            // Add pre-saccade user check: Look at user briefly before each random movement
+            
+            if (currentSaccadeState == SaccadeState.Normal)
+            {
+                // Check if it's time for a new saccade
+                if (Time.time > nextSaccadeTime)
+                {
+                    // Trigger pre-saccade user check
+                    currentSaccadeState = SaccadeState.PreSaccadeUserCheck;
+                    preSaccadeCheckTimer = Random.Range(0.5f, 1f);  // Look at user for 0.5-1s
+                    
+                    // Calculate user face position
+                    if (isCursorNearby)
+                    {
+                        userFaceGazeTarget = cursorGazeTarget;
+                    }
+                    else
+                    {
+                        // Look upward at top (where user would be)
+                        userFaceGazeTarget = new Vector2(Random.Range(-0.03f, 0.03f), 0.15f);
+                    }
+                }
+                else
+                {
+                    // Continue current saccade
+                    gazeTarget = Vector2.Lerp(gazeTarget, saccadeTarget, 3f * Time.deltaTime);
+                }
+            }
+            else if (currentSaccadeState == SaccadeState.PreSaccadeUserCheck)
+            {
+                // Execute pre-saccade user check
+                preSaccadeCheckTimer -= Time.deltaTime;
+                
+                // Look at user
+                gazeTarget = Vector2.Lerp(gazeTarget, userFaceGazeTarget, 4f * Time.deltaTime);
+                
+                if (preSaccadeCheckTimer <= 0f)
+                {
+                    // User check complete, now generate random saccade
+                    currentSaccadeState = SaccadeState.ExecutingSaccade;
+                    
+                    float gazeRange = Mathf.Lerp(0.05f, 0.15f, currentEmotion.engagement);
+                    saccadeTarget = new Vector2(
+                        Random.Range(-gazeRange, gazeRange),
+                        Random.Range(-gazeRange, gazeRange)
+                    );
+                    
+                    // Schedule next saccade
+                    float saccadeInterval = Mathf.Lerp(3f, 0.5f, currentEmotion.engagement);
+                    nextSaccadeTime = Time.time + Random.Range(saccadeInterval * 0.8f, saccadeInterval * 1.2f);
+                }
+            }
+            else if (currentSaccadeState == SaccadeState.ExecutingSaccade)
+            {
+                // Execute the saccade movement
+                gazeTarget = Vector2.Lerp(gazeTarget, saccadeTarget, 3f * Time.deltaTime);
+                
+                // Check if saccade reached target (ready for next cycle)
+                if (Vector2.Distance(gazeTarget, saccadeTarget) < 0.02f)
+                {
+                    currentSaccadeState = SaccadeState.Normal;
+                }
+            }
+            
+            gazeAtCursorDuration = 0f;
+        }
+        
+        // Clamp gaze to natural range
+        gazeTarget.x = Mathf.Clamp(gazeTarget.x, -maxGazeOffset.x, maxGazeOffset.x);
+        gazeTarget.y = Mathf.Clamp(gazeTarget.y, -maxGazeOffset.y, maxGazeOffset.y);
         
         // Autonomous blink system
         UpdateBlinkSystem();
         
-        // Pupil dilation based on arousal
-        float pupilSize = Mathf.Lerp(0.7f, 1.3f, currentEmotion.arousal);
-        slimeMaterial.SetFloat("_PupilScale", pupilSize);
+        // Smooth pupil dilation with spring damping
+        UpdatePupilDilation();
     }
     
     void UpdateBlinkSystem()
@@ -685,11 +1152,64 @@ public class UltimateLivingSlime : MonoBehaviour
         }
     }
     
+    void UpdatePupilDilation()
+    {
+        // Calculate target pupil size from multiple factors
+        targetPupilSize = 1f;
+        
+        // 1. Arousal-based dilation (excited/scared = dilated)
+        targetPupilSize = Mathf.Lerp(0.7f, 1.3f, currentEmotion.arousal);
+        
+        // 2. Focus dilation (interested in cursor = dilate)
+        if (attentionFocus > 0.5f)
+        {
+            targetPupilSize *= Mathf.Lerp(1f, 1.2f, attentionFocus);
+        }
+        
+        // 3. Tap response (surprise dilate)
+        if (wasRecentlyTapped && tapResponseTimer > 0f)
+        {
+            float tapEffect = Mathf.Sin(tapResponseTimer * Mathf.PI * 2f) * 0.3f;  // Pulse
+            targetPupilSize *= (1f + tapEffect);
+        }
+        
+        // 4. Micro-dilations for interest spikes (random)
+        if (Random.value < 0.01f)  // 1% chance per frame
+        {
+            targetPupilSize *= Random.Range(1.05f, 1.15f);
+        }
+        
+        // Smooth spring damping toward target
+        currentPupilSize = Mathf.SmoothDamp(
+            currentPupilSize,
+            targetPupilSize,
+            ref pupilDilationVelocity,
+            0.15f  // Smooth damping time
+        );
+        
+        slimeMaterial.SetFloat("_PupilScale", currentPupilSize);
+    }
+    
     void ApplyEyeStateToSlime()
     {
-        // Apply gaze offset
+        // Apply gaze offset with subtle spring overshoot for realism
         slimeMaterial.SetFloat("_EyeOffsetX", gazeTarget.x);
         slimeMaterial.SetFloat("_EyeOffsetY", gazeTarget.y);
+        
+        // Debug: Verify shader properties are being set
+        if (Time.frameCount % 120 == 0)
+        {
+            Debug.Log($"Applying Eye State: GazeTarget=({gazeTarget.x:F3}, {gazeTarget.y:F3}), " +
+                     $"Material has _EyeOffsetX={slimeMaterial.HasProperty("_EyeOffsetX")}, " +
+                     $"Material has _EyeOffsetY={slimeMaterial.HasProperty("_EyeOffsetY")}");
+            
+            if (slimeMaterial.HasProperty("_EyeOffsetX"))
+            {
+                float currentX = slimeMaterial.GetFloat("_EyeOffsetX");
+                float currentY = slimeMaterial.GetFloat("_EyeOffsetY");
+                Debug.Log($"Shader values: _EyeOffsetX={currentX:F3}, _EyeOffsetY={currentY:F3}");
+            }
+        }
         
         // Apply blink
         if (isBlinking)
@@ -735,6 +1255,63 @@ public class UltimateLivingSlime : MonoBehaviour
         }
         
         slimeMaterial.SetFloat("_EyeSquintAmount", squintAmount);
+    }
+    
+    #endregion
+    
+    #region Micro-Behaviors (Anticipatory, Check-ins, Curiosity)
+    
+    void UpdateMicroBehaviors()
+    {
+        // Skip during high intensity emotions or sleep
+        if (currentEmotion.intensity > 0.7f || isAsleep()) return;
+        
+        // Periodic "check-in" glances at user (simulate social awareness)
+        if (Time.time > nextCheckInTime && !isBlinking && !isCursorNearby)
+        {
+            isDoingMicroBehavior = true;
+            // Look toward "user's face" position (slightly up and forward)
+            microBehaviorTarget = new Vector2(
+                Random.Range(-0.05f, 0.05f),
+                0.1f + Random.Range(0f, 0.05f)
+            );
+            gazeTarget = microBehaviorTarget;
+            
+            StartCoroutine(EndMicroBehaviorAfterDelay(Random.Range(0.5f, 1.5f)));
+            nextCheckInTime = Time.time + Random.Range(10f, 20f);
+        }
+        
+        // Curiosity scanning when curious emotion
+        if (currentEmotion.engagement > 0.7f && Time.time > nextCuriosityLookTime)
+        {
+            if (Random.value < 0.4f)  // 40% chance
+            {
+                isDoingMicroBehavior = true;
+                // Scan environment
+                float scanRange = 0.15f;
+                microBehaviorTarget = new Vector2(
+                    Random.Range(-scanRange, scanRange),
+                    Random.Range(-scanRange * 0.5f, scanRange)
+                );
+                gazeTarget = microBehaviorTarget;
+                
+                StartCoroutine(EndMicroBehaviorAfterDelay(Random.Range(0.3f, 0.8f)));
+            }
+            nextCuriosityLookTime = Time.time + Random.Range(5f, 10f);
+        }
+        
+        // Fatigue drooping eyes when tired
+        if (currentEnergy < 0.3f && !isAsleep())
+        {
+            // Gradually look downward
+            gazeTarget.y = Mathf.Lerp(gazeTarget.y, -0.08f, Time.deltaTime * 0.5f);
+        }
+    }
+    
+    IEnumerator EndMicroBehaviorAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        isDoingMicroBehavior = false;
     }
     
     #endregion
@@ -808,6 +1385,27 @@ public class UltimateLivingSlime : MonoBehaviour
         tearPuffiness = Mathf.Lerp(tearPuffiness, 0f, Time.deltaTime * 0.1f);
         excitementResidue = Mathf.Lerp(excitementResidue, 0f, Time.deltaTime * 0.15f);
         tensionResidue = Mathf.Lerp(tensionResidue, 0f, Time.deltaTime * 0.12f);
+        
+        // Decay tap response
+        if (tapResponseTimer > 0f)
+        {
+            tapResponseTimer -= Time.deltaTime;
+            if (tapResponseTimer <= 0f)
+            {
+                wasRecentlyTapped = false;
+                tapIntensity = 0f;
+            }
+        }
+        
+        // Reset tap spam counter
+        if (tapSpamTimer > 0f)
+        {
+            tapSpamTimer -= Time.deltaTime;
+            if (tapSpamTimer <= 0f)
+            {
+                recentTapCount = 0;
+            }
+        }
         
         // Build residuals based on current emotion
         if (currentEmotion.valence < -0.6f && currentEmotion.intensity > 0.6f) // Crying
@@ -1055,11 +1653,78 @@ public class UltimateLivingSlime : MonoBehaviour
     }
     
     // Public methods for player interaction
+    public void OnTapDetected(Vector3 tapPosition)
+    {
+        if (!enableTapResponse) return;
+        
+        Debug.Log($"OnTapDetected called! Position: {tapPosition}");
+        
+        lastTapPosition = tapPosition;
+        wasRecentlyTapped = true;
+        tapResponseTimer = 1f;  // 1 second response duration
+        
+        // Track tap spam
+        recentTapCount++;
+        tapSpamTimer = 2f;  // Reset spam window
+        
+        // Determine tap intensity (gentle vs spam)
+        if (recentTapCount > 5)  // More than 5 taps in 2 seconds = spam
+        {
+            tapIntensity = Mathf.Min(2f, recentTapCount / 5f);
+            
+            // Get annoyed at spam
+            if (recentTapCount > 8 && canChangeEmotion)
+            {
+                SetEmotionPreset(EmotionPreset.Grumpy);
+            }
+        }
+        else  // Gentle tap
+        {
+            tapIntensity = 0.5f;
+            
+            // Surprise reaction
+            if (canChangeEmotion && Random.value < 0.3f)
+            {
+                SetEmotionPreset(EmotionPreset.Surprised);
+            }
+        }
+        
+        // Trigger anticipatory blink (before "contact")
+        if (!isBlinking && Random.value < 0.5f)
+        {
+            isBlinking = true;
+            blinkPhase = 0f;
+        }
+        
+        // Snap gaze toward tap location briefly
+        if (Camera.main != null)
+        {
+            float zDist = Mathf.Abs(Camera.main.transform.position.z - slimeTransform.position.z);
+            Vector3 tapWorld = Camera.main.ScreenToWorldPoint(new Vector3(tapPosition.x, tapPosition.y, zDist));
+            Vector2 directionToTap = (tapWorld - slimeTransform.position).normalized;
+            gazeTarget = new Vector2(
+                directionToTap.x * 0.12f,
+                directionToTap.y * 0.08f
+            );
+            
+            Debug.Log($"Tap gaze snap: Direction={directionToTap}, NewGazeTarget={gazeTarget}");
+        }
+        
+        // Increase relationship level for gentle interactions
+        if (tapIntensity < 1f)
+        {
+            relationshipLevel = Mathf.Min(100f, relationshipLevel + 0.5f);
+        }
+        
+        lastInteractionTime = Time.time;
+    }
+    
     public void GiveAttention()
     {
         attentionMeter = Mathf.Min(1f, attentionMeter + 0.3f);
         happinessMeter = Mathf.Min(1f, happinessMeter + 0.2f);
         lastInteractionTime = Time.time;
+        relationshipLevel = Mathf.Min(100f, relationshipLevel + 2f);  // Boost relationship
         
         // React with affection if happy
         if (happinessMeter > 0.6f && canChangeEmotion)
@@ -1073,6 +1738,7 @@ public class UltimateLivingSlime : MonoBehaviour
         hungerMeter = 1f;
         happinessMeter = Mathf.Min(1f, happinessMeter + 0.25f);
         lastInteractionTime = Time.time;
+        relationshipLevel = Mathf.Min(100f, relationshipLevel + 3f);  // Boost relationship
         
         // React with contentment
         if (canChangeEmotion)

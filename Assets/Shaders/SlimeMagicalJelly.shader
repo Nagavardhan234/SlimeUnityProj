@@ -362,9 +362,14 @@ Shader "Procedural/SlimeMagicalJelly"
                 float3 eyeColor = lerp(_EyeColor.rgb * 0.7, _EyeColor.rgb * 1.2, eyeDepth);
                 
                 // Pupils - larger for innocence
-                float pupilRadius = 0.105;
-                float leftPupilMask = smoothstep(0.012, -0.012, length(leftEyePos - float2(-0.025, -0.01)) - pupilRadius);
-                float rightPupilMask = smoothstep(0.012, -0.012, length(rightEyePos - float2(-0.025, -0.01)) - pupilRadius);
+                float pupilRadius = 0.105 * _PupilScale;
+                
+                // Apply gaze offset for eye tracking
+                float2 gazeOffset = float2(_EyeOffsetX, _EyeOffsetY);
+                float2 pupilBasePos = float2(-0.025, -0.01);  // Base looking slightly left-down
+                
+                float leftPupilMask = smoothstep(0.012, -0.012, length(leftEyePos - (pupilBasePos + gazeOffset)) - pupilRadius);
+                float rightPupilMask = smoothstep(0.012, -0.012, length(rightEyePos - (pupilBasePos + gazeOffset)) - pupilRadius);
                 float pupilMask = max(leftPupilMask, rightPupilMask);
                 
                 // Add WETNESS effect for emotional depth (glass marble eyes)
@@ -374,11 +379,13 @@ Shader "Procedural/SlimeMagicalJelly"
                 // TWINKLE animation - makes eyes feel alive and aware
                 float twinkle = 1.0 + sin(time * 2.8 + hash(float2(1.5, 2.3)) * 6.28) * 0.18;
                 
-                // Larger, more prominent shines
-                float leftShineMask = smoothstep(0.015, -0.015, length(leftEyePos - float2(-0.055, 0.058)) - 0.055);
-                float rightShineMask = smoothstep(0.015, -0.015, length(rightEyePos - float2(-0.055, 0.058)) - 0.055);
-                float leftShine2Mask = smoothstep(0.01, -0.01, length(leftEyePos - float2(0.038, -0.032)) - 0.022);
-                float rightShine2Mask = smoothstep(0.01, -0.01, length(rightEyePos - float2(0.038, -0.032)) - 0.022);
+                // Larger, more prominent shines - FIXED: Now move with pupils!
+                float2 shine1Offset = float2(-0.055, 0.058) + gazeOffset;
+                float2 shine2Offset = float2(0.038, -0.032) + gazeOffset;
+                float leftShineMask = smoothstep(0.015, -0.015, length(leftEyePos - shine1Offset) - 0.055);
+                float rightShineMask = smoothstep(0.015, -0.015, length(rightEyePos - shine1Offset) - 0.055);
+                float leftShine2Mask = smoothstep(0.01, -0.01, length(leftEyePos - shine2Offset) - 0.022);
+                float rightShine2Mask = smoothstep(0.01, -0.01, length(rightEyePos - shine2Offset) - 0.022);
                 float shineMask = max(max(leftShineMask, rightShineMask), max(leftShine2Mask, rightShine2Mask));
                 shineMask *= twinkle * 1.3;
                 
