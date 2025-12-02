@@ -875,30 +875,14 @@ public class UltimateLivingSlime : MonoBehaviour
             return;
         }
         
-        // FIRST-IMPRESSION PHASE (0-10s): Prioritize looking at user
+        // FIRST-IMPRESSION PHASE (0-10s): Look at user (center/middle position)
         bool isFirstImpression = Time.time < firstImpressionEndTime;
         if (isFirstImpression && !isDoingMicroBehavior)
         {
-            // Always calculate cursor position (even during startup grace period)
-            if (Camera.main != null)
-            {
-                Vector3 mouseScreenPos = Input.mousePosition;
-                mouseScreenPos.z = Mathf.Abs(Camera.main.transform.position.z - slimeTransform.position.z);
-                Vector3 cursorWorld = Camera.main.ScreenToWorldPoint(mouseScreenPos);
-                Vector2 directionToCursor = (cursorWorld - slimeTransform.position).normalized;
-                float gazeRange = 0.1f;
-                userFaceGazeTarget = new Vector2(
-                    directionToCursor.x * gazeRange,
-                    directionToCursor.y * gazeRange * 0.5f
-                );
-            }
-            else
-            {
-                // Fallback if camera not found
-                userFaceGazeTarget = new Vector2(0f, 0.05f);
-            }
+            // Look straight at user (center/middle - neutral position)
+            userFaceGazeTarget = new Vector2(0f, 0f);  // Center position
             
-            // Spend 80% of time looking at user, 20% brief glances away
+            // Spend 80% of time looking at user center, 20% brief glances away
             if (Random.value < 0.2f * Time.deltaTime)  // 20% chance per second to glance away
             {
                 // Brief glance away (1-2s)
@@ -911,7 +895,7 @@ public class UltimateLivingSlime : MonoBehaviour
             }
             else
             {
-                // Look at user (smooth tracking)
+                // Look at user center (smooth tracking)
                 gazeTarget = Vector2.Lerp(gazeTarget, userFaceGazeTarget, 2f * Time.deltaTime);
             }
             
@@ -1051,18 +1035,10 @@ public class UltimateLivingSlime : MonoBehaviour
                 {
                     // Trigger pre-saccade user check
                     currentSaccadeState = SaccadeState.PreSaccadeUserCheck;
-                    preSaccadeCheckTimer = Random.Range(0.5f, 1f);  // Look at user for 0.5-1s
+                    preSaccadeCheckTimer = 2f;  // Look at user center for 2 seconds
                     
-                    // Calculate user face position
-                    if (isCursorNearby)
-                    {
-                        userFaceGazeTarget = cursorGazeTarget;
-                    }
-                    else
-                    {
-                        // Look upward at top (where user would be)
-                        userFaceGazeTarget = new Vector2(Random.Range(-0.03f, 0.03f), 0.15f);
-                    }
+                    // Look at center/middle (straight at user)
+                    userFaceGazeTarget = new Vector2(0f, 0f);
                 }
                 else
                 {
