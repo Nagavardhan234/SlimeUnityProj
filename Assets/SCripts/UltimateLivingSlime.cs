@@ -55,7 +55,14 @@ public class UltimateLivingSlime : MonoBehaviour
         Embarrassed,
         Pensive,
         Hopeful,
-        Worried
+        Worried,
+        // Natural pet states
+        Drowsy,
+        Sleeping,
+        Hungry,
+        Affectionate,
+        Grumpy,
+        Surprised
     }
     
     #endregion
@@ -99,6 +106,12 @@ public class UltimateLivingSlime : MonoBehaviour
     [Range(0f, 1f)] public float currentEnergy = 1f;
     [Range(0.5f, 2f)] public float breathRate = 1f;
     public bool enableIdleMicroAnimations = true;
+    
+    [Header("Needs System (Virtual Pet)")]
+    [Range(0f, 1f)] public float attentionMeter = 1f;  // Decreases when ignored
+    [Range(0f, 1f)] public float happinessMeter = 0.8f; // Increases with good interactions
+    [Range(0f, 1f)] public float hungerMeter = 1f;      // Decreases over time
+    public float lastInteractionTime = 0f;
     
     [Header("Debug Display")]
     public string currentEmotionName = "Neutral";
@@ -144,6 +157,14 @@ public class UltimateLivingSlime : MonoBehaviour
     private float excitementResidue = 0f;       // After excited
     private float tensionResidue = 0f;          // After angry
     
+    // Natural visual effects (shader-based, no sprites)
+    private float eyeWetness = 0f;              // Tear film glossiness
+    private float eyeRedness = 0f;              // Redness from crying
+    private float blushIntensity = 0f;          // Natural cheek blush
+    private float internalHeartGlow = 0f;       // Love/affection indicator
+    private float sweatingAmount = 0f;          // Anxiety wetness
+    private float sleepDepth = 0f;              // 0=awake, 1=deep sleep
+    
     // Animation history for emergence
     private Queue<EmotionalState> emotionHistory = new Queue<EmotionalState>();
     private const int maxHistorySize = 20;
@@ -158,22 +179,11 @@ public class UltimateLivingSlime : MonoBehaviour
     IEnumerator InitializeAfterSlime()
     {
         yield return null;
-        
+
         // Get references
         if (slimeController == null)
         {
             slimeController = FindObjectOfType<SlimeController>();
-        }
-        
-        if (spriteAnimationManager == null)
-        {
-            spriteAnimationManager = FindObjectOfType<SpriteAnimationManager>();
-            if (spriteAnimationManager == null)
-            {
-                GameObject animObj = new GameObject("SpriteAnimationManager");
-                spriteAnimationManager = animObj.AddComponent<SpriteAnimationManager>();
-                spriteAnimationManager.canvas = FindObjectOfType<Canvas>();
-            }
         }
         
         if (slimeController != null)
@@ -191,6 +201,23 @@ public class UltimateLivingSlime : MonoBehaviour
         else
         {
             Debug.LogError("UltimateLivingSlime: SlimeController not found!");
+        }
+        
+        if (spriteAnimationManager == null)
+        {
+            spriteAnimationManager = FindObjectOfType<SpriteAnimationManager>();
+            if (spriteAnimationManager == null)
+            {
+                GameObject animObj = new GameObject("SpriteAnimationManager");
+                spriteAnimationManager = animObj.AddComponent<SpriteAnimationManager>();
+                spriteAnimationManager.canvas = FindObjectOfType<Canvas>();
+            }
+        }
+        
+        // Set slime transform reference for sprite manager
+        if (spriteAnimationManager != null && slimeTransform != null)
+        {
+            spriteAnimationManager.slimeTransform = slimeTransform;
         }
     }
     
@@ -210,6 +237,9 @@ public class UltimateLivingSlime : MonoBehaviour
         tearPuffiness = 0f;
         excitementResidue = 0f;
         tensionResidue = 0f;
+        
+        // Initialize needs
+        lastInteractionTime = Time.time;
     }
     
     void Update()
@@ -227,15 +257,19 @@ public class UltimateLivingSlime : MonoBehaviour
         UpdateEnergySystem();
         UpdateResidualEffects();
         
+        // Update needs system
+        UpdateNeedsSystem();
+        
         // Apply all systems to slime
         ApplyEmotionalStateToSlime();
         ApplyBreathingToSlime();
         ApplyEyeStateToSlime();
         ApplyBodyMotionToSlime();  // NEW: Dramatic body animations
         ApplyBodyLanguageToSlime();
+        ApplyNaturalVisualEffects(); // NEW: Organic shader-based effects
         
         // Spawn synchronized sprite animations
-        UpdateSpriteAnimations();
+        // UpdateSpriteAnimations(); // DISABLED - Replaced with natural shader effects
         
         // Track history for emergence
         TrackEmotionHistory();
@@ -328,6 +362,21 @@ public class UltimateLivingSlime : MonoBehaviour
                 return new EmotionalState(0.4f, 0.5f, 0.45f, 0.7f, 0.5f);
             case EmotionPreset.Worried:
                 return new EmotionalState(-0.4f, 0.65f, 0.35f, 0.65f, 0.65f);
+            
+            // Natural pet states
+            case EmotionPreset.Drowsy:
+                return new EmotionalState(-0.1f, 0.15f, 0.4f, 0.2f, 0.4f);
+            case EmotionPreset.Sleeping:
+                return new EmotionalState(0.2f, 0.05f, 0.3f, 0.1f, 0.3f);
+            case EmotionPreset.Hungry:
+                return new EmotionalState(-0.3f, 0.5f, 0.4f, 0.8f, 0.7f);
+            case EmotionPreset.Affectionate:
+                return new EmotionalState(0.9f, 0.4f, 0.5f, 0.9f, 0.8f);
+            case EmotionPreset.Grumpy:
+                return new EmotionalState(-0.4f, 0.3f, 0.6f, 0.3f, 0.5f);
+            case EmotionPreset.Surprised:
+                return new EmotionalState(0.1f, 0.95f, 0.3f, 1f, 0.9f);
+            
             default: // Neutral
                 return new EmotionalState(0f, 0.5f, 0.5f, 0.5f, 0.3f);
         }
@@ -822,13 +871,31 @@ public class UltimateLivingSlime : MonoBehaviour
     
     #region Synchronized Sprite Animations
     
+    Vector2 GetSlimeCanvasPosition()
+    {
+        if (slimeTransform == null || spriteAnimationManager == null || spriteAnimationManager.canvas == null)
+            return Vector2.zero;
+        
+        // Get slime world position
+        Vector3 worldPos = slimeTransform.position;
+        
+        // Convert to canvas position
+        RectTransform canvasRect = spriteAnimationManager.canvas.GetComponent<RectTransform>();
+        Vector2 viewportPos = Camera.main.WorldToViewportPoint(worldPos);
+        Vector2 canvasPos = new Vector2(
+            (viewportPos.x - 0.5f) * canvasRect.sizeDelta.x,
+            (viewportPos.y - 0.5f) * canvasRect.sizeDelta.y
+        );
+        
+        return canvasPos;
+    }
+    
     void UpdateSpriteAnimations()
     {
-        if (spriteAnimationManager == null) return;
+        if (spriteAnimationManager == null || !spriteAnimationManager.IsLoaded()) return;
         
-        // Wait for sprite animations to load before spawning
-        if (!spriteAnimationManager.IsLoaded()) return;
-        
+        Vector2 slimePos = GetSlimeCanvasPosition();
+
         // Tears synchronized with breath (exhale phase only)
         if (currentEmotion.valence < -0.5f && currentEmotion.intensity > 0.5f)
         {
@@ -838,7 +905,7 @@ public class UltimateLivingSlime : MonoBehaviour
                 if (Random.value < tearProbability)
                 {
                     int tearCount = currentEmotion.intensity > 0.8f ? 2 : 1;
-                    spriteAnimationManager.SpawnTear(Vector2.zero, tearCount);
+                    spriteAnimationManager.SpawnTear(slimePos, tearCount);
                 }
             }
         }
@@ -848,7 +915,7 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             if (Random.value < 0.08f * currentEmotion.intensity)
             {
-                spriteAnimationManager.SpawnHeart(Vector2.zero);
+                spriteAnimationManager.SpawnHeart(slimePos);
             }
         }
         
@@ -857,7 +924,7 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             if (Random.value < 0.05f * currentEmotion.intensity)
             {
-                spriteAnimationManager.SpawnMusicalNote(Vector2.zero);
+                spriteAnimationManager.SpawnMusicalNote(slimePos);
             }
         }
         
@@ -866,7 +933,7 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             if (Random.value < 0.1f * currentEmotion.intensity)
             {
-                spriteAnimationManager.SpawnSparkles(Vector2.zero, 2);
+                spriteAnimationManager.SpawnSparkles(slimePos, 2);
             }
         }
         
@@ -875,7 +942,7 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             if (Random.value < 0.04f * currentEmotion.intensity)
             {
-                spriteAnimationManager.SpawnSweat(Vector2.zero, 1);
+                spriteAnimationManager.SpawnSweat(slimePos, 1);
             }
         }
         
@@ -884,7 +951,7 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             if (Random.value < 0.02f)
             {
-                spriteAnimationManager.SpawnBlushBubble(Vector2.zero);
+                spriteAnimationManager.SpawnBlushBubble(slimePos);
             }
         }
         
@@ -893,11 +960,11 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             if (Random.value < 0.05f)
             {
-                spriteAnimationManager.SpawnAngerSymbol(Vector2.zero);
+                spriteAnimationManager.SpawnAngerSymbol(slimePos);
             }
             if (Random.value < 0.04f)
             {
-                spriteAnimationManager.SpawnAngryVeins(Vector2.zero);
+                spriteAnimationManager.SpawnAngryVeins(slimePos);
             }
         }
         
@@ -906,7 +973,7 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             if (Random.value < 0.03f)
             {
-                spriteAnimationManager.SpawnQuestionMark(Vector2.zero);
+                spriteAnimationManager.SpawnQuestionMark(slimePos);
             }
         }
         
@@ -915,9 +982,232 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             if (Random.value < 0.03f)
             {
-                spriteAnimationManager.SpawnExclamation(Vector2.zero);
+                spriteAnimationManager.SpawnExclamation(slimePos);
             }
         }
+    }
+    
+    #endregion
+    
+    #region Needs System (Virtual Pet Care)
+    
+    void UpdateNeedsSystem()
+    {
+        float deltaTime = Time.deltaTime;
+        float timeSinceInteraction = Time.time - lastInteractionTime;
+        
+        // Attention depletes when ignored (loneliness)
+        if (timeSinceInteraction > 30f) // After 30 seconds of no interaction
+        {
+            attentionMeter -= 0.02f * deltaTime;
+        }
+        
+        // Hunger depletes naturally
+        hungerMeter -= 0.01f * deltaTime; // Takes ~100 seconds to get hungry
+        
+        // Energy depletes based on activity (arousal)
+        float activityDrain = currentEmotion.arousal * 0.03f * deltaTime;
+        currentEnergy -= activityDrain;
+        
+        // Happiness influenced by needs being met
+        if (attentionMeter < 0.3f || hungerMeter < 0.3f)
+        {
+            happinessMeter -= 0.05f * deltaTime; // Unhappy when needs unmet
+        }
+        else if (attentionMeter > 0.7f && hungerMeter > 0.7f)
+        {
+            happinessMeter += 0.02f * deltaTime; // Happy when well cared for
+        }
+        
+        // Clamp all meters
+        attentionMeter = Mathf.Clamp01(attentionMeter);
+        happinessMeter = Mathf.Clamp01(happinessMeter);
+        hungerMeter = Mathf.Clamp01(hungerMeter);
+        currentEnergy = Mathf.Clamp01(currentEnergy);
+        
+        // Auto-adjust emotions based on needs
+        AutoAdjustEmotionFromNeeds();
+    }
+    
+    void AutoAdjustEmotionFromNeeds()
+    {
+        if (!isTransitioning && canChangeEmotion)
+        {
+            // Prioritize sleep when exhausted
+            if (currentEnergy < 0.2f && currentEmotionName != "Sleeping" && currentEmotionName != "Drowsy")
+            {
+                if (currentEnergy < 0.1f)
+                    SetEmotionPreset(EmotionPreset.Sleeping);
+                else
+                    SetEmotionPreset(EmotionPreset.Drowsy);
+            }
+            // Show hunger
+            else if (hungerMeter < 0.3f && currentEmotionName != "Hungry")
+            {
+                SetEmotionPreset(EmotionPreset.Hungry);
+            }
+            // Show loneliness/sadness when attention is low
+            else if (attentionMeter < 0.3f && currentEmotionName != "Sad" && currentEmotionName != "Lonely")
+            {
+                SetEmotionPreset(EmotionPreset.Lonely);
+            }
+        }
+    }
+    
+    // Public methods for player interaction
+    public void GiveAttention()
+    {
+        attentionMeter = Mathf.Min(1f, attentionMeter + 0.3f);
+        happinessMeter = Mathf.Min(1f, happinessMeter + 0.2f);
+        lastInteractionTime = Time.time;
+        
+        // React with affection if happy
+        if (happinessMeter > 0.6f && canChangeEmotion)
+        {
+            SetEmotionPreset(EmotionPreset.Affectionate);
+        }
+    }
+    
+    public void Feed()
+    {
+        hungerMeter = 1f;
+        happinessMeter = Mathf.Min(1f, happinessMeter + 0.25f);
+        lastInteractionTime = Time.time;
+        
+        // React with contentment
+        if (canChangeEmotion)
+        {
+            SetEmotionPreset(EmotionPreset.Content);
+        }
+    }
+    
+    #endregion
+    
+    #region Natural Visual Effects (No Sprite Overlays)
+    
+    void ApplyNaturalVisualEffects()
+    {
+        // Update effect intensities based on emotional state
+        UpdateTearEffects();
+        UpdateBlushEffect();
+        UpdateHeartGlowEffect();
+        UpdateSweatingEffect();
+        UpdateSleepEffects();
+        
+        // Apply to shader (assuming shader properties exist or will be added)
+        ApplyVisualEffectsToShader();
+    }
+    
+    void UpdateTearEffects()
+    {
+        // Natural tears: eye wetness + redness when sad
+        if (currentEmotion.valence < -0.5f && currentEmotion.intensity > 0.5f)
+        {
+            eyeWetness = Mathf.Lerp(eyeWetness, 0.8f, Time.deltaTime * 2f);
+            eyeRedness = Mathf.Lerp(eyeRedness, 0.6f, Time.deltaTime * 1f);
+            tearPuffiness = Mathf.Lerp(tearPuffiness, 0.7f, Time.deltaTime * 0.5f);
+        }
+        else
+        {
+            eyeWetness = Mathf.Lerp(eyeWetness, 0.1f, Time.deltaTime * 0.5f);
+            eyeRedness = Mathf.Lerp(eyeRedness, 0f, Time.deltaTime * 0.3f);
+            tearPuffiness = Mathf.Lerp(tearPuffiness, 0f, Time.deltaTime * 0.2f);
+        }
+    }
+    
+    void UpdateBlushEffect()
+    {
+        // Blush for shy, embarrassed, or affectionate states
+        if ((currentEmotion.dominance < 0.3f && currentEmotion.arousal > 0.4f) || 
+            currentEmotionName == "Affectionate")
+        {
+            blushIntensity = Mathf.Lerp(blushIntensity, 0.7f, Time.deltaTime * 3f);
+        }
+        else
+        {
+            blushIntensity = Mathf.Lerp(blushIntensity, 0f, Time.deltaTime * 2f);
+        }
+    }
+    
+    void UpdateHeartGlowEffect()
+    {
+        // Internal heart glow for love/affection
+        if (currentEmotionName == "Affectionate" || currentEmotionName == "Happy" && happinessMeter > 0.8f)
+        {
+            float pulse = Mathf.Sin(Time.time * 3f) * 0.5f + 0.5f; // Pulsing
+            internalHeartGlow = Mathf.Lerp(internalHeartGlow, 0.8f * pulse, Time.deltaTime * 4f);
+        }
+        else
+        {
+            internalHeartGlow = Mathf.Lerp(internalHeartGlow, 0f, Time.deltaTime * 2f);
+        }
+    }
+    
+    void UpdateSweatingEffect()
+    {
+        // Glistening wetness for anxiety/scared/hot states
+        if (currentEmotion.arousal > 0.7f && (currentEmotion.dominance < 0.4f || currentEmotionName == "Scared"))
+        {
+            sweatingAmount = Mathf.Lerp(sweatingAmount, 0.6f, Time.deltaTime * 2f);
+        }
+        else
+        {
+            sweatingAmount = Mathf.Lerp(sweatingAmount, 0f, Time.deltaTime * 1f);
+        }
+    }
+    
+    void UpdateSleepEffects()
+    {
+        // Sleep depth affects multiple visual parameters
+        if (currentEmotionName == "Sleeping")
+        {
+            sleepDepth = Mathf.Lerp(sleepDepth, 1f, Time.deltaTime * 0.5f); // Gradually fall into deep sleep
+        }
+        else if (currentEmotionName == "Drowsy")
+        {
+            sleepDepth = Mathf.Lerp(sleepDepth, 0.3f, Time.deltaTime * 1f);
+        }
+        else
+        {
+            sleepDepth = Mathf.Lerp(sleepDepth, 0f, Time.deltaTime * 2f);
+        }
+    }
+    
+    void ApplyVisualEffectsToShader()
+    {
+        // Apply all natural effects to shader properties
+        // (These shader properties would need to be added to your slime shader)
+        
+        // Eye effects
+        if (slimeMaterial.HasProperty("_EyeWetness"))
+            slimeMaterial.SetFloat("_EyeWetness", eyeWetness);
+        
+        if (slimeMaterial.HasProperty("_EyeRedness"))
+            slimeMaterial.SetFloat("_EyeRedness", eyeRedness);
+        
+        // Blush (soft pink gradient on cheeks)
+        if (slimeMaterial.HasProperty("_BlushIntensity"))
+            slimeMaterial.SetFloat("_BlushIntensity", blushIntensity);
+        
+        // Internal heart glow (visible through translucency)
+        if (slimeMaterial.HasProperty("_HeartGlow"))
+            slimeMaterial.SetFloat("_HeartGlow", internalHeartGlow);
+        
+        // Surface wetness/sweating
+        if (slimeMaterial.HasProperty("_SurfaceWetness"))
+            slimeMaterial.SetFloat("_SurfaceWetness", sweatingAmount);
+        
+        // Sleep effects (dimmed glow, closed eyes handled in eye system)
+        if (slimeMaterial.HasProperty("_SleepDimming"))
+            slimeMaterial.SetFloat("_SleepDimming", sleepDepth * 0.5f);
+        
+        // Modify existing glow based on needs/happiness
+        float needsModifier = (attentionMeter + happinessMeter) * 0.5f;
+        float glowMult = Mathf.Lerp(0.5f, 1.2f, needsModifier);
+        
+        // This modulates the existing inner glow strength
+        float currentGlow = slimeMaterial.GetFloat("_InnerGlowStrength");
+        slimeMaterial.SetFloat("_InnerGlowStrength", currentGlow * glowMult);
     }
     
     #endregion

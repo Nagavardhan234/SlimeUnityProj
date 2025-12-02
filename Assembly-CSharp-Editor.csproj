@@ -64,6 +64,7 @@
   <ItemGroup>
     <Compile Include="Assets\SCripts\Editor\MaterialSetup.cs" />
     <Compile Include="Assets\SCripts\Editor\UltimateLivingSlimeEditor.cs" />
+    <Compile Include="Assets\SCripts\Editor\FixSpriteImportSettings.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">

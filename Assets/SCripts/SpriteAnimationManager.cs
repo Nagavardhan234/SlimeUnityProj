@@ -33,7 +33,7 @@ public class SpriteAnimationManager : MonoBehaviour
     // Loading state
     private bool allAnimationsLoaded = false;
     
-    // Sprite loading paths (Resources folder)
+    // Sprite loading paths (Resources folder) - only load animations actually used by emotions
     private readonly Dictionary<SpriteAnimationPlayer.AnimationType, string> animationPaths = new Dictionary<SpriteAnimationPlayer.AnimationType, string>
     {
         { SpriteAnimationPlayer.AnimationType.TearDrop, "itch/187x187/tear_drop" },
@@ -46,10 +46,8 @@ public class SpriteAnimationManager : MonoBehaviour
         { SpriteAnimationPlayer.AnimationType.BlushBubble, "itch/187x187/blush_bubble" },
         { SpriteAnimationPlayer.AnimationType.AngerSymbol, "itch/187x187/anger_symbol" },
         { SpriteAnimationPlayer.AnimationType.StressLines, "itch/187x187/stress_lines" },
-        { SpriteAnimationPlayer.AnimationType.SpiritIcon, "itch/187x187/spirit_icon" },
-        { SpriteAnimationPlayer.AnimationType.ShockRays, "itch/187x187/shock_rays" },
-        { SpriteAnimationPlayer.AnimationType.AngryVeins, "itch/187x187/angry_veins" },
-        { SpriteAnimationPlayer.AnimationType.FrustrationScribble, "itch/187x187/frustration_scribble" }
+        { SpriteAnimationPlayer.AnimationType.AngryVeins, "itch/187x187/angry_veins" }
+        // Removed unused: SpiritIcon, ShockRays, FrustrationScribble
     };
     
     void Start()
@@ -130,6 +128,12 @@ public class SpriteAnimationManager : MonoBehaviour
             
             if (sprite == null)
             {
+                // Try checking if texture exists but isn't a sprite
+                Texture2D texture = Resources.Load<Texture2D>(spritePath);
+                if (texture != null && frameIndex == 0)
+                {
+                    Debug.LogError($"Textures found at {folderPath} but not imported as Sprites! Use Tools > Fix Sprite Import Settings to fix this.");
+                }
                 break;
             }
             
