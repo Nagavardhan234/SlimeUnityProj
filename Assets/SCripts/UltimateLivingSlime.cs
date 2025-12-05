@@ -264,17 +264,22 @@ public class UltimateLivingSlime : MonoBehaviour
         {
             slimeMaterial = slimeController.GetSlimeMaterial();
             slimeTransform = slimeController.GetSlimeTransform();
-            slimeController.SetIdleAnimationEnabled(false);
             
-            if (slimeMaterial != null)
+            if (slimeMaterial != null && slimeTransform != null)
             {
+                // Only disable idle animation if we have valid references
+                slimeController.SetIdleAnimationEnabled(false);
                 Debug.Log("UltimateLivingSlime: Initialized successfully! Use dropdown to test emotions.");
                 InitializeDefaultState();
+            }
+            else
+            {
+                Debug.LogError("UltimateLivingSlime: SlimeController found but material/transform is null! Animation system may not work.");
             }
         }
         else
         {
-            Debug.LogError("UltimateLivingSlime: SlimeController not found!");
+            Debug.LogError("UltimateLivingSlime: SlimeController not found! Make sure SlimeController exists in scene. Animation system disabled.");
         }
         
         if (spriteAnimationManager == null)

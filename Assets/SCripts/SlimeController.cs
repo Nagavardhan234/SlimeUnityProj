@@ -52,6 +52,12 @@ public class SlimeController : MonoBehaviour
     private float blinkTimer = 0f;
     private bool isBlinking = false;
     
+    void Awake()
+    {
+        // Setup canvas in Awake so it exists before other scripts' Start() methods
+        SetupCanvas();
+    }
+    
     void Start()
     {
         SetupScene();
@@ -123,7 +129,7 @@ public class SlimeController : MonoBehaviour
     
     public void SetupScene()
     {
-        SetupCanvas();
+        // Canvas already created in Awake(), so just create visual elements
         CreateBackground();
         CreateSlime3D();
     }
@@ -150,8 +156,9 @@ public class SlimeController : MonoBehaviour
         
         CanvasScaler scaler = canvas.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1080, 1920);
-        scaler.matchWidthOrHeight = 0.5f;
+        scaler.referenceResolution = new Vector2(1920, 1080); // Landscape reference
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight = 0.5f; // Balanced scaling
     }
     
     void CreateBackground()
@@ -169,6 +176,9 @@ public class SlimeController : MonoBehaviour
         rectTransform.pivot = new Vector2(0.5f, 0.5f);
         
         backgroundImage.transform.SetAsFirstSibling();
+        
+        // CRITICAL FIX: Disable raycast blocking on background
+        rawImage.raycastTarget = false;
         
         Material bgMaterial = new Material(Shader.Find("Procedural/BackgroundProcedural"));
         bgMaterial.SetColor("_TopColor", backgroundTopColor);
@@ -264,6 +274,9 @@ public class SlimeController : MonoBehaviour
         
         rawImage.texture = slimeRenderTexture;
         rawImage.color = Color.white;
+        
+        // CRITICAL FIX: Disable raycast blocking so UI clicks pass through
+        rawImage.raycastTarget = false;
         
         // Add drop shadow for depth separation (floats pet forward 3D-like)
         Shadow shadow = slimeDisplay.AddComponent<Shadow>();
